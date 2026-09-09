@@ -93,6 +93,7 @@
             padding: 35px;
             border-radius: 18px;
             text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
         }
 
         .nameButton {
@@ -198,6 +199,26 @@
             width: 100%;
         }
 
+        /* STATUS */
+
+        #firebaseStatus {
+            font-size: 12px;
+            margin-top: 3px;
+            color: #aaaab5;
+        }
+
+        #firebaseStatus.connected {
+            color: #75e08a;
+        }
+
+        #firebaseStatus.error {
+            color: #ff7070;
+        }
+
+        #firebaseStatus.loading {
+            color: #ffd166;
+        }
+
         /* MESSAGE INPUT */
 
         .inputArea {
@@ -233,6 +254,24 @@
             background: #7c74ff;
         }
 
+        #sendButton:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* FIREBASE ERROR */
+
+        #firebaseError {
+            display: none;
+            margin: 10px 20px 0 20px;
+            padding: 12px;
+            background: #3b2528;
+            border: 1px solid #70343a;
+            border-radius: 10px;
+            color: #ff9b9b;
+            font-size: 13px;
+        }
+
         @media (max-width: 600px) {
 
             .message {
@@ -247,6 +286,13 @@
                 padding: 12px;
             }
 
+            .inputArea {
+                padding: 10px;
+            }
+
+            #sendButton {
+                padding: 0 15px;
+            }
         }
     </style>
 </head>
@@ -316,8 +362,15 @@
     <div class="chatHeader">
 
         <div>
+
             <h2>💬 Luna & Kricket</h2>
+
             <span id="currentUser"></span>
+
+            <div id="firebaseStatus" class="loading">
+                Connecting to chat...
+            </div>
+
         </div>
 
         <button id="lockButton" onclick="lockChat()">
@@ -327,8 +380,17 @@
     </div>
 
 
+    <!-- FIREBASE ERROR -->
+
+    <div id="firebaseError"></div>
+
+
+    <!-- MESSAGES -->
+
     <div id="messages"></div>
 
+
+    <!-- MESSAGE INPUT -->
 
     <div class="inputArea">
 
@@ -339,7 +401,9 @@
             autocomplete="off"
         >
 
-        <button id="sendButton" onclick="sendMessage()">
+        <button
+            id="sendButton"
+            onclick="sendMessage()">
             Send
         </button>
 
@@ -359,16 +423,20 @@
         getDatabase,
         ref,
         push,
-        onValue
+        onValue,
+        onDisconnect
     }
         from "https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
 
 
-    /* YOUR FIREBASE CONFIG */
+    /* =========================================
+       FIREBASE CONFIG
+       ========================================= */
 
     const firebaseConfig = {
 
-        apiKey: "AIzaSyAFXcjrFBcZD2ZY1e9uMzmqftLTngd6Vv8",
+        apiKey:
+            "AIzaSyAFXcjrFBcZD2ZY1e9uMzmqftLTngd6Vv8",
 
         authDomain:
             "luna-and-kricket.firebaseapp.com",
@@ -390,31 +458,85 @@
 
         measurementId:
             "G-76LCKDY8NW"
+
     };
 
 
-    /* START FIREBASE */
+    /* =========================================
+       START FIREBASE
+       ========================================= */
 
-    const app = initializeApp(firebaseConfig);
+    const app =
+        initializeApp(firebaseConfig);
 
-    const database = getDatabase(app);
+    const database =
+        getDatabase(app);
 
 
-    /* VARIABLES */
+    /* =========================================
+       VARIABLES
+       ========================================= */
 
     let currentUser = null;
 
+    let messagesListener = null;
 
-    /*
+
+    /* =========================================
+       STATUS FUNCTIONS
+       ========================================= */
+
+    function setStatus(text, type) {
+
+        const status =
+            document.getElementById("firebaseStatus");
+
+        status.textContent = text;
+
+        status.className = type;
+
+    }
+
+
+    function showFirebaseError(message) {
+
+        const errorBox =
+            document.getElementById("firebaseError");
+
+        errorBox.textContent =
+            "Firebase error: " + message;
+
+        errorBox.style.display = "block";
+
+    }
+
+
+    function hideFirebaseError() {
+
+        const errorBox =
+            document.getElementById("firebaseError");
+
+        errorBox.style.display = "none";
+
+    }
+
+
+    /* =========================================
        PASSWORD
-    */
+       ========================================= */
 
     window.checkPassword = function () {
 
         const password =
             document.getElementById("passwordInput").value;
 
+        const error =
+            document.getElementById("loginError");
+
+
         if (password === "011825") {
+
+            error.style.display = "none";
 
             document.getElementById("loginScreen")
                 .style.display = "none";
@@ -422,23 +544,44 @@
             document.getElementById("nameScreen")
                 .style.display = "flex";
 
-        } else {
+        }
 
-            document.getElementById("loginError")
-                .style.display = "block";
+        else {
+
+            error.style.display = "block";
 
         }
 
     };
 
 
-    /*
+    /* =========================================
+       PASSWORD ENTER KEY
+       ========================================= */
+
+    document
+        .getElementById("passwordInput")
+        .addEventListener("keydown", function(event) {
+
+            if (event.key === "Enter") {
+
+                event.preventDefault();
+
+                checkPassword();
+
+            }
+
+        });
+
+
+    /* =========================================
        SELECT NAME
-    */
+       ========================================= */
 
     window.selectName = function (name) {
 
         currentUser = name;
+
 
         document.getElementById("nameScreen")
             .style.display = "none";
@@ -446,24 +589,39 @@
         document.getElementById("chatScreen")
             .style.display = "flex";
 
+
         document.getElementById("currentUser")
             .textContent = "You are " + name;
+
+
+        hideFirebaseError();
+
+        setStatus(
+            "Connecting to chat...",
+            "loading"
+        );
+
 
         loadMessages();
 
     };
 
 
-    /*
+    /* =========================================
        SEND MESSAGE
-    */
+       ========================================= */
 
-    window.sendMessage = function () {
+    window.sendMessage = async function () {
 
         const input =
             document.getElementById("messageInput");
 
-        const text = input.value.trim();
+        const sendButton =
+            document.getElementById("sendButton");
+
+        const text =
+            input.value.trim();
+
 
         if (text === "" || currentUser === null) {
             return;
@@ -474,27 +632,68 @@
             ref(database, "messages");
 
 
-        push(messagesRef, {
-
-            sender: currentUser,
-
-            text: text,
-
-            timestamp: Date.now()
-
-        });
+        sendButton.disabled = true;
 
 
-        input.value = "";
+        try {
 
-        input.focus();
+            await push(messagesRef, {
+
+                sender: currentUser,
+
+                text: text,
+
+                timestamp: Date.now()
+
+            });
+
+
+            input.value = "";
+
+            input.focus();
+
+
+            hideFirebaseError();
+
+            setStatus(
+                "Connected",
+                "connected"
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "Error sending message:",
+                error
+            );
+
+
+            showFirebaseError(
+                getFirebaseErrorMessage(error)
+            );
+
+
+            setStatus(
+                "Connection error",
+                "error"
+            );
+
+        }
+
+        finally {
+
+            sendButton.disabled = false;
+
+        }
 
     };
 
 
-    /*
+    /* =========================================
        ENTER KEY SENDS MESSAGE
-    */
+       ========================================= */
 
     document
         .getElementById("messageInput")
@@ -511,9 +710,9 @@
         });
 
 
-    /*
+    /* =========================================
        LOAD REAL-TIME MESSAGES
-    */
+       ========================================= */
 
     function loadMessages() {
 
@@ -521,114 +720,347 @@
             ref(database, "messages");
 
 
-        onValue(messagesRef, function(snapshot) {
+        /*
+           Prevent duplicate listeners.
+        */
 
-            const messagesContainer =
-                document.getElementById("messages");
+        if (messagesListener) {
 
-            messagesContainer.innerHTML = "";
+            messagesListener();
 
+            messagesListener = null;
 
-            const data = snapshot.val();
-
-            if (!data) {
-                return;
-            }
+        }
 
 
-            const messages =
-                Object.values(data);
+        messagesListener = onValue(
+
+            messagesRef,
+
+            function(snapshot) {
+
+                hideFirebaseError();
+
+                setStatus(
+                    "Connected",
+                    "connected"
+                );
 
 
-            messages.sort(function(a, b) {
-
-                return a.timestamp - b.timestamp;
-
-            });
+                const messagesContainer =
+                    document.getElementById("messages");
 
 
-            messages.forEach(function(message) {
-
-                const messageBox =
-                    document.createElement("div");
-
-                messageBox.classList.add("message");
+                messagesContainer.innerHTML = "";
 
 
-                if (message.sender === currentUser) {
+                const data =
+                    snapshot.val();
 
-                    messageBox.classList.add("mine");
 
-                } else {
+                /*
+                   No messages yet.
+                */
 
-                    messageBox.classList.add("theirs");
+                if (!data) {
+
+                    const emptyMessage =
+                        document.createElement("div");
+
+                    emptyMessage.style.textAlign =
+                        "center";
+
+                    emptyMessage.style.opacity =
+                        "0.5";
+
+                    emptyMessage.style.marginTop =
+                        "30px";
+
+                    emptyMessage.textContent =
+                        "No messages yet. Start the conversation!";
+
+                    messagesContainer.appendChild(
+                        emptyMessage
+                    );
+
+                    return;
 
                 }
 
 
-                const sender =
-                    document.createElement("div");
+                /*
+                   Convert Firebase data
+                   into an array.
+                */
 
-                sender.className = "sender";
+                const messages =
+                    Object.entries(data).map(
+                        function([id, message]) {
 
-                sender.textContent =
-                    message.sender;
+                            return {
 
+                                id: id,
 
-                const messageText =
-                    document.createElement("div");
+                                ...message
 
-                messageText.className = "messageText";
+                            };
 
-                messageText.textContent =
-                    message.text;
-
-
-                const time =
-                    document.createElement("div");
-
-                time.className = "time";
-
-                time.textContent =
-                    formatTime(message.timestamp);
+                        }
+                    );
 
 
-                messageBox.appendChild(sender);
+                /*
+                   Sort oldest → newest.
+                */
 
-                messageBox.appendChild(messageText);
+                messages.sort(function(a, b) {
 
-                messageBox.appendChild(time);
+                    return (
+                        (a.timestamp || 0) -
+                        (b.timestamp || 0)
+                    );
 
-
-                messagesContainer.appendChild(messageBox);
-
-
-                const divider =
-                    document.createElement("div");
-
-                divider.className = "divider";
-
-                messagesContainer.appendChild(divider);
-
-            });
+                });
 
 
-            messagesContainer.scrollTop =
-                messagesContainer.scrollHeight;
+                /*
+                   Display every message.
+                */
 
-        });
+                messages.forEach(function(message) {
+
+                    const messageBox =
+                        document.createElement("div");
+
+
+                    messageBox.classList.add(
+                        "message"
+                    );
+
+
+                    /*
+                       Determine which side
+                       the message belongs on.
+                    */
+
+                    if (
+                        message.sender ===
+                        currentUser
+                    ) {
+
+                        messageBox.classList.add(
+                            "mine"
+                        );
+
+                    }
+
+                    else {
+
+                        messageBox.classList.add(
+                            "theirs"
+                        );
+
+                    }
+
+
+                    /*
+                       Sender name
+                    */
+
+                    const sender =
+                        document.createElement("div");
+
+
+                    sender.className =
+                        "sender";
+
+
+                    sender.textContent =
+                        message.sender ||
+                        "Unknown";
+
+
+                    /*
+                       Message text
+                    */
+
+                    const messageText =
+                        document.createElement("div");
+
+
+                    messageText.className =
+                        "messageText";
+
+
+                    messageText.textContent =
+                        message.text || "";
+
+
+                    /*
+                       Time
+                    */
+
+                    const time =
+                        document.createElement("div");
+
+
+                    time.className =
+                        "time";
+
+
+                    time.textContent =
+                        formatTime(
+                            message.timestamp
+                        );
+
+
+                    /*
+                       Build message box.
+                    */
+
+                    messageBox.appendChild(
+                        sender
+                    );
+
+                    messageBox.appendChild(
+                        messageText
+                    );
+
+                    messageBox.appendChild(
+                        time
+                    );
+
+
+                    messagesContainer.appendChild(
+                        messageBox
+                    );
+
+
+                    /*
+                       Divider
+                    */
+
+                    const divider =
+                        document.createElement("div");
+
+
+                    divider.className =
+                        "divider";
+
+
+                    messagesContainer.appendChild(
+                        divider
+                    );
+
+                });
+
+
+                /*
+                   Scroll to newest message.
+                */
+
+                messagesContainer.scrollTop =
+                    messagesContainer.scrollHeight;
+
+            },
+
+            function(error) {
+
+                /*
+                   THIS IS THE IMPORTANT PART.
+
+                   If Firebase refuses to READ the
+                   database, this function catches it.
+                */
+
+                console.error(
+                    "Firebase read error:",
+                    error
+                );
+
+
+                setStatus(
+                    "Firebase read error",
+                    "error"
+                );
+
+
+                showFirebaseError(
+                    getFirebaseErrorMessage(error)
+                );
+
+            }
+
+        );
 
     }
 
 
-    /*
+    /* =========================================
+       FIREBASE ERROR TRANSLATOR
+       ========================================= */
+
+    function getFirebaseErrorMessage(error) {
+
+        if (!error) {
+
+            return "Unknown Firebase error.";
+
+        }
+
+
+        if (
+            error.code ===
+            "PERMISSION_DENIED"
+        ) {
+
+            return (
+                "Permission denied. " +
+                "Check your Realtime Database Rules. " +
+                "The website can reach Firebase, " +
+                "but Firebase is refusing the read."
+            );
+
+        }
+
+
+        if (
+            error.code ===
+            "PERMISSION_DENIED: permission_denied"
+        ) {
+
+            return (
+                "Permission denied. " +
+                "Check your Realtime Database Rules."
+            );
+
+        }
+
+
+        return (
+            error.message ||
+            "Could not connect to Firebase."
+        );
+
+    }
+
+
+    /* =========================================
        FORMAT TIME
-    */
+       ========================================= */
 
     function formatTime(timestamp) {
 
+        if (!timestamp) {
+
+            return "";
+
+        }
+
+
         const date =
             new Date(timestamp);
+
 
         return date.toLocaleString([], {
 
@@ -645,25 +1077,55 @@
     }
 
 
-    /*
+    /* =========================================
        LOCK CHAT
-    */
+       ========================================= */
 
     window.lockChat = function () {
 
         currentUser = null;
 
+
+        /*
+           Stop Firebase listener.
+        */
+
+        if (messagesListener) {
+
+            messagesListener();
+
+            messagesListener = null;
+
+        }
+
+
         document.getElementById("chatScreen")
             .style.display = "none";
+
 
         document.getElementById("nameScreen")
             .style.display = "none";
 
+
         document.getElementById("loginScreen")
             .style.display = "flex";
 
+
         document.getElementById("passwordInput")
             .value = "";
+
+
+        document.getElementById("messages")
+            .innerHTML = "";
+
+
+        hideFirebaseError();
+
+
+        setStatus(
+            "Connecting to chat...",
+            "loading"
+        );
 
     };
 
